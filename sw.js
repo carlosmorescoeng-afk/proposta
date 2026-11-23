@@ -1,6 +1,6 @@
 // Guarda a página da proposta no aparelho para funcionar sem internet.
 // Ao publicar uma versão nova do index.html, aumente o número da versão abaixo.
-const CACHE = "proposta-moresco-v1";
+const CACHE = "proposta-moresco-v2";
 const ASSETS = [
   "./",
   "./index.html",
