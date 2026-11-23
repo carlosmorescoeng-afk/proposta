@@ -336,8 +336,17 @@
 
   // ---------- modo offline: guarda a página no iPad depois da primeira abertura com internet ----------
   if ("serviceWorker" in navigator) {
+    // se uma versão nova assumir a página (atualização publicada), recarrega uma vez para mostrá-la
+    var hadController = !!navigator.serviceWorker.controller, reloaded = false;
+    navigator.serviceWorker.addEventListener("controllerchange", function () {
+      if (!hadController || reloaded) return;
+      var drawn = slides.some(function (s) { return s._strokes.length; });
+      if (drawn) return; // nunca apaga anotações já feitas
+      reloaded = true; location.reload();
+    });
     window.addEventListener("load", function () {
-      navigator.serviceWorker.register("sw.js").catch(function () {});
+      navigator.serviceWorker.register("sw.js", { updateViaCache: "none" })
+        .then(function (reg) { reg.update(); }).catch(function () {});
     });
   }
 })();

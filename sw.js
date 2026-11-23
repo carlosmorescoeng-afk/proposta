@@ -1,8 +1,8 @@
 // Guarda a página da proposta no aparelho para funcionar sem internet.
+// Com internet, a página vem sempre do site (versão mais nova); sem internet, usa a cópia guardada.
 // Ao publicar uma versão nova do index.html, aumente o número da versão abaixo.
-const CACHE = "proposta-moresco-v3";
+const CACHE = "proposta-moresco-v4";
 const ASSETS = [
-  "./",
   "./index.html",
   "./fonts/caladea-400-normal.woff2",
   "./fonts/caladea-700-normal.woff2",
@@ -13,7 +13,12 @@ const ASSETS = [
 ];
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting()));
+  // cache: "reload" ignora o cache do navegador, para não guardar uma cópia antiga
+  event.waitUntil(
+    caches.open(CACHE)
+      .then((c) => c.addAll(ASSETS.map((u) => new Request(u, { cache: "reload" }))))
+      .then(() => self.skipWaiting())
+  );
 });
 
 self.addEventListener("activate", (event) => {
@@ -24,27 +29,49 @@ self.addEventListener("activate", (event) => {
   );
 });
 
-// Primeiro a cópia guardada (abre na hora, com ou sem internet); com internet, atualiza a cópia em segundo plano.
+function withTimeout(promise, ms) {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error("timeout")), ms);
+    promise.then((r) => { clearTimeout(t); resolve(r); }, (e) => { clearTimeout(t); reject(e); });
+  });
+}
+
 self.addEventListener("fetch", (event) => {
   const req = event.request;
   if (req.method !== "GET" || new URL(req.url).origin !== self.location.origin) return;
-  const isPage = req.mode === "navigate";
+
+  if (req.mode === "navigate") {
+    // Página: primeiro o site (sem cache do navegador); se não houver internet em 6 s, a cópia guardada.
+    event.respondWith(
+      caches.open(CACHE).then(async (cache) => {
+        try {
+          const res = await withTimeout(fetch(req, { cache: "no-store" }), 6000);
+          if (res && res.ok) {
+            cache.put("./index.html", res.clone());
+            return res;
+          }
+          throw new Error("bad response");
+        } catch (e) {
+          const cached = await cache.match("./index.html");
+          return cached || new Response("Sem conexão e sem cópia salva.", { status: 503 });
+        }
+      })
+    );
+    return;
+  }
+
+  // Fontes e demais arquivos: cópia guardada primeiro (não mudam).
   event.respondWith(
     caches.open(CACHE).then(async (cache) => {
-      const key = isPage ? "./index.html" : req;
-      const cached = await cache.match(key, { ignoreSearch: true });
-      const network = fetch(req)
-        .then((res) => {
-          if (res && res.ok) cache.put(key, res.clone());
-          return res;
-        })
-        .catch(() => null);
-      if (cached) {
-        event.waitUntil(network);
-        return cached;
+      const cached = await cache.match(req, { ignoreSearch: true });
+      if (cached) return cached;
+      try {
+        const res = await fetch(req);
+        if (res && res.ok) cache.put(req, res.clone());
+        return res;
+      } catch (e) {
+        return new Response("", { status: 503 });
       }
-      const res = await network;
-      return res || new Response("Sem conexão e sem cópia salva.", { status: 503 });
     })
   );
 });
